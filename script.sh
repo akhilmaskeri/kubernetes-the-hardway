@@ -16,7 +16,6 @@ FIREWALL_RULE_EXTERNAL="$PROJECT-allow-external"
 function cleanup {
 
 	local existing_instances="$(gcloud compute instances list 2>&1)"
-
 	local running_instances=""
 	for i in 0 1 2; do
 
@@ -28,12 +27,11 @@ function cleanup {
 			running_instances="$running_instances worker-${i}"
 		fi
 	done
-
 	if [ -n "$running_instances" ]; then
 		gcloud compute instances delete $running_instances
 	fi
 
-	local existing_firewall_rules="$(gcloud compute firewall-rules list --filter=network:$NETWORK_NAME)"
+	local existing_firewall_rules="$(gcloud compute firewall-rules list --filter=network:$NETWORK_NAME 2>&1)"
 	if grep -q "$FIREWALL_RULE_INTERNAL" <<< "$existing_firewall_rules"; then
 		echo "deleting \"$FIREWALL_RULE_INTERNAL\""
 		gcloud compute firewall-rules delete -q $FIREWALL_RULE_INTERNAL
@@ -43,20 +41,20 @@ function cleanup {
 		gcloud compute firewall-rules delete -q $FIREWALL_RULE_EXTERNAL
 	fi
 
-	local existing_subnets="$(gcloud compute networks subnets list --network $NETWORK_NAME)"
+	local existing_subnets="$(gcloud compute networks subnets list --network $NETWORK_NAME 2>&1)"
 	if grep -q -E "$NETWORK_NAME\s+$SUBNET_RANGE" <<<  $existing_subnets; then
 		echo "deleting \"$SUBNET_NAME\""
 		gcloud compute networks subnets delete -q $SUBNET_NAME
 	fi
 
 
-	local existing_networks="$(gcloud compute networks list)"
+	local existing_networks="$(gcloud compute networks list 2>&1)"
 	if grep -q "$NETWORK_NAME" <<< $existing_networks; then
 		echo "deleting \"$NETWORK_NAME\""
 		gcloud compute networks delete -q $NETWORK_NAME		
 	fi
 
-	local existing_addresses="$(gcloud compute addresses list --regions $REGION)"
+	local existing_addresses="$(gcloud compute addresses list --regions $REGION 2>&1)"
 	if grep -q "$PUBLIC_IP" <<< "$existing_addresses"; then
 		echo "deleting \"$PUBLIC_IP\""
 		gcloud compute addresses delete -q "$PUBLIC_IP" 
@@ -68,7 +66,7 @@ function cleanup {
 function static_ip_exists {
 
 	### make sure the network ip exists
-	local existing_addresses="$(gcloud compute addresses list --regions $REGION)"
+	local existing_addresses="$(gcloud compute addresses list --regions $REGION 2>&1)"
 	if grep -q "$PUBLIC_IP" <<< "$existing_addresses"; then
 		echo "$PUBLIC_IP ip exists" 
 	else
@@ -85,7 +83,7 @@ function static_ip_exists {
 function firewall_rule_exists {
 
 	### make sure the firewall rule exists
-	local existing_firewall_rules="$(gcloud compute firewall-rules list --filter=network:$NETWORK_NAME)"
+	local existing_firewall_rules="$(gcloud compute firewall-rules list --filter=network:$NETWORK_NAME 2>&1)"
 
 	if grep -q "$FIREWALL_RULE_INTERNAL" <<< "$existing_firewall_rules"; then
 		echo "$FIREWALL_RULE_INTERNAL firewall rule exists"  
@@ -122,7 +120,7 @@ function firewall_rule_exists {
 function subnet_exists {
 
 	### make sure the subnet exists
-	local existing_subnets="$(gcloud compute networks subnets list --network $NETWORK_NAME)"
+	local existing_subnets="$(gcloud compute networks subnets list --network $NETWORK_NAME 2>&1)"
 
 	if grep -q -E "$NETWORK_NAME\s+$SUBNET_RANGE" <<<  $existing_subnets; then
 		echo "$NETWORK_NAME $SUBNET_RANGE Subnet exists"
@@ -154,8 +152,6 @@ function compute_instances_exist {
 	local existing_instances=$(gcloud compute instances list)
 	
 	for i in 0 1 2; do
-
-		echo iter $i
 
 		if grep -q -E "controller-${i}" <<< $existing_instances; then
 			echo "controller-${i} exists"
@@ -197,11 +193,34 @@ function compute_instances_exist {
 
 }
 
-#network_exists
-#subnet_exists
-#firewall_rule_exists
-#static_ip_exists
-#compute_instances_exist
+# network_exists
+# subnet_exists
+# firewall_rule_exists
+# static_ip_exists
+# compute_instances_exist
 
-#cleanup
+# cleanup
 
+function print_help {
+	echo "options"
+	echo "    -create    to create the cluster"
+	echo "    -remove    to remove the cluster"
+}
+
+if [ "$#" -eq "1" ]; then
+	option=$1
+	if [ "$option" == "-create" ]; then
+		network_exists
+		subnet_exists
+		firewall_rule_exists
+		static_ip_exists
+		compute_instances_exist
+	elif [ "$option" == "-remove" ]; then
+		echo "Cleaning up"
+		cleanup
+	else
+		print_help
+	fi
+else
+	print_help
+fi
