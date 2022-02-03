@@ -15,29 +15,51 @@ FIREWALL_RULE_EXTERNAL="$PROJECT-allow-external"
 
 function cleanup {
 
-	local existing_firewall_rules="$(gcloud compute firewall-rules list --filter=network:$NETWORK_NAME)"
-	if grep -q "$FIREWALL_RULE_INTERNAL" <<< "$existing_firewall_rules"; then
-		yes | gcloud compute firewall-rules delete $FIREWALL_RULE_INTERNAL
-	fi
-	if grep -q "$FIREWALL_RULE_EXTERNAL" <<< "$existing_firewall_rules"; then
-		yes | gcloud compute firewall-rules delete $FIREWALL_RULE_EXTERNAL
+	local existing_instances="$(gcloud compute instances list 2>&1)"
+
+	local running_instances=""
+	for i in 0 1 2; do
+
+		if grep -q -E "controller-${i}" <<< "$existing_instances"; then
+			running_instances="$running_instances controller-${i}"
+		fi
+
+		if grep -q -E "worker-${i}" <<< "$existing_instances"; then
+			running_instances="$running_instances worker-${i}"
+		fi
+	done
+
+	if [ -n "$running_instances" ]; then
+		gcloud compute instances delete $running_instances
 	fi
 
+	local existing_firewall_rules="$(gcloud compute firewall-rules list --filter=network:$NETWORK_NAME)"
+	if grep -q "$FIREWALL_RULE_INTERNAL" <<< "$existing_firewall_rules"; then
+		echo "deleting \"$FIREWALL_RULE_INTERNAL\""
+		gcloud compute firewall-rules delete -q $FIREWALL_RULE_INTERNAL
+	fi
+	if grep -q "$FIREWALL_RULE_EXTERNAL" <<< "$existing_firewall_rules"; then
+		echo "deleting \"$FIREWALL_RULE_EXTERNAL\""
+		gcloud compute firewall-rules delete -q $FIREWALL_RULE_EXTERNAL
+	fi
 
 	local existing_subnets="$(gcloud compute networks subnets list --network $NETWORK_NAME)"
 	if grep -q -E "$NETWORK_NAME\s+$SUBNET_RANGE" <<<  $existing_subnets; then
-		yes | gcloud compute networks subnets delete $SUBNET_NAME
+		echo "deleting \"$SUBNET_NAME\""
+		gcloud compute networks subnets delete -q $SUBNET_NAME
 	fi
 
 
 	local existing_networks="$(gcloud compute networks list)"
 	if grep -q "$NETWORK_NAME" <<< $existing_networks; then
-		yes | gcloud compute networks delete $NETWORK_NAME		
+		echo "deleting \"$NETWORK_NAME\""
+		gcloud compute networks delete -q $NETWORK_NAME		
 	fi
 
 	local existing_addresses="$(gcloud compute addresses list --regions $REGION)"
 	if grep -q "$PUBLIC_IP" <<< "$existing_addresses"; then
-		yes | gcloud compute addresses delete "$PUBLIC_IP" 
+		echo "deleting \"$PUBLIC_IP\""
+		gcloud compute addresses delete -q "$PUBLIC_IP" 
 	fi
 
 }
@@ -45,6 +67,7 @@ function cleanup {
 
 function static_ip_exists {
 
+	### make sure the network ip exists
 	local existing_addresses="$(gcloud compute addresses list --regions $REGION)"
 	if grep -q "$PUBLIC_IP" <<< "$existing_addresses"; then
 		echo "$PUBLIC_IP ip exists" 
@@ -58,9 +81,10 @@ function static_ip_exists {
 
 }
 
+
 function firewall_rule_exists {
 
-	### check if the firewall rule exists
+	### make sure the firewall rule exists
 	local existing_firewall_rules="$(gcloud compute firewall-rules list --filter=network:$NETWORK_NAME)"
 
 	if grep -q "$FIREWALL_RULE_INTERNAL" <<< "$existing_firewall_rules"; then
@@ -97,7 +121,7 @@ function firewall_rule_exists {
 
 function subnet_exists {
 
-	### check if the subnet exists
+	### make sure the subnet exists
 	local existing_subnets="$(gcloud compute networks subnets list --network $NETWORK_NAME)"
 
 	if grep -q -E "$NETWORK_NAME\s+$SUBNET_RANGE" <<<  $existing_subnets; then
@@ -113,7 +137,7 @@ function subnet_exists {
 
 function network_exists {
 
-	###  check if the network exists
+	###  make sure the network exists
 	local existing_networks="$(gcloud compute networks list)"
 
 	if grep -q "$NETWORK_NAME" <<< $existing_networks; then
@@ -125,10 +149,59 @@ function network_exists {
 
 }
 
+function compute_instances_exist {
+
+	local existing_instances=$(gcloud compute instances list)
+	
+	for i in 0 1 2; do
+
+		echo iter $i
+
+		if grep -q -E "controller-${i}" <<< $existing_instances; then
+			echo "controller-${i} exists"
+	 	else	
+			echo "creating controller-${i}"
+			gcloud compute instances create controller-${i} \
+			    --async \
+			    --boot-disk-size 200GB \
+			    --can-ip-forward \
+			    --image-family ubuntu-2004-lts \
+			    --image-project ubuntu-os-cloud \
+			    --machine-type e2-standard-2 \
+			    --private-network-ip 10.240.0.1${i} \
+			    --scopes compute-rw,storage-ro,service-management,service-control,logging-write,monitoring \
+			    --subnet $SUBNET_NAME \
+			    --tags $PROJECT,controller
+		fi
+
+
+		if grep -q -E "worker-${i}" <<< $existing_instances; then
+			echo "worker-${i} exists"
+		else
+			echo "creating worker-${i}"
+			gcloud compute instances create worker-${i} \
+			    --async \
+			    --boot-disk-size 200GB \
+			    --can-ip-forward \
+			    --image-family ubuntu-2004-lts \
+			    --image-project ubuntu-os-cloud \
+			    --machine-type e2-standard-2 \
+			    --metadata pod-cidr=10.200.${i}.0/24 \
+			    --private-network-ip 10.240.0.2${i} \
+			    --scopes compute-rw,storage-ro,service-management,service-control,logging-write,monitoring \
+			    --subnet $SUBNET_NAME \
+			    --tags $PROJECT,worker
+		fi
+
+	done
+
+}
 
 #network_exists
 #subnet_exists
 #firewall_rule_exists
 #static_ip_exists
+#compute_instances_exist
 
 #cleanup
+
