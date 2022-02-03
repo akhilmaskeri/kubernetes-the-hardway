@@ -193,19 +193,13 @@ function compute_instances_exist {
 
 }
 
-# network_exists
-# subnet_exists
-# firewall_rule_exists
-# static_ip_exists
-# compute_instances_exist
-
-# cleanup
 
 function print_help {
 	echo "options"
 	echo "    -create    to create the cluster"
 	echo "    -remove    to remove the cluster"
 }
+
 
 if [ "$#" -eq "1" ]; then
 	option=$1
