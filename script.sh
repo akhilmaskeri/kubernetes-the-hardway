@@ -17,7 +17,7 @@ function cleanup {
 
 	local existing_instances="$(gcloud compute instances list 2>&1)"
 	local running_instances=""
-	for i in 0 1 2; do
+	for i in 0 1; do
 
 		if grep -q -E "controller-${i}" <<< "$existing_instances"; then
 			running_instances="$running_instances controller-${i}"
@@ -151,7 +151,7 @@ function compute_instances_exist {
 
 	local existing_instances=$(gcloud compute instances list)
 	
-	for i in 0 1 2; do
+	for i in 0 1; do
 
 		if grep -q -E "controller-${i}" <<< $existing_instances; then
 			echo "controller-${i} exists"
