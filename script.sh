@@ -254,6 +254,9 @@ if [ "$#" -gt "0" ]; then
 		bash create-certificate.sh
 		bash create-encryption-key.sh
 
+		bash copy-ssh-key.sh
+		bash generate-inventory.sh
+
 	elif [ "$option" == "-decommission" ]; then
 		echo "Decommissioning"
 		cleanup
