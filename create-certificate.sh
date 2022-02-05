@@ -3,6 +3,7 @@
 PROJECT_NAME="k8-the-hard-way"
 REGION="asia-south1"
 PUBLIC_IP="$PROJECT_NAME-lb-ip"
+NODES=2
 
 mkdir -p ssl/
 pushd ssl
@@ -74,7 +75,7 @@ cfssl gencert \
 
 
 # kubelet client certificate
-for instance in worker-0 worker-1 worker-2; do
+for instance in worker-0 worker-1; do
 
 cat > ${instance}-csr.json <<EOF
 {
@@ -257,9 +258,8 @@ cfssl gencert \
   -profile=kubernetes \
   service-account-csr.json | cfssljson -bare service-account
 
-
 # Distribute the Client and Server Certificates
-for i in 0 1; do
+for i in $(seq 0 $((NODES-1))); do
   worker="worker-${i}"
   gcloud compute scp ca.pem ${worker}-key.pem ${worker}.pem ${worker}:~/
 

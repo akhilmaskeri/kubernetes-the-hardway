@@ -134,7 +134,6 @@ for i in 0 1; do
 
     controller="controller-${i}"
     gcloud compute scp admin.kubeconfig kube-controller-manager.kubeconfig kube-scheduler.kubeconfig ${controller}:~/
-
 done
 
 popd

@@ -147,9 +147,10 @@ function network_exists {
 
 }
 
+
 function compute_instances_exist {
 
-	local existing_instances=$(gcloud compute instances list)
+	local existing_instances="$(gcloud compute instances list 2>&1)"
 	
 	for i in 0 1; do
 
@@ -189,6 +190,35 @@ function compute_instances_exist {
 			    --tags $PROJECT,worker
 		fi
 
+		echo ""
+	done
+
+}
+
+function wait_till_ssh {
+
+	# check if all are accessible through ssh
+	external_ip="$(gcloud compute instances list --format 'value(EXTERNAL_IP)')"
+	read -a external_ip -d '\n' <<< "$external_ip"
+
+	while true; do
+
+		accessible=0
+
+		for IP in ${external_ip[@]}; do
+			if nc -w 1 -z $IP 22; then
+			accessible=$((accessible+1))
+			else
+			sleep 2
+			break
+			fi
+		done
+
+		if [ "$accessible" -eq "${#external_ip[@]}" ]; then
+			echo "All instances are accessible by ssh"
+			break
+		fi
+
 	done
 
 }
@@ -196,25 +226,41 @@ function compute_instances_exist {
 
 function print_help {
 	echo "options"
-	echo "    -create    to create the cluster"
-	echo "    -remove    to remove the cluster"
+	echo "    -provision       to create the cluster"
+	echo "    -copy-keys       to copy certificates to instances"
+	echo "    -decommission    to remove the cluster"
 }
 
+if [ "$#" -gt "0" ]; then
 
-if [ "$#" -eq "1" ]; then
 	option=$1
-	if [ "$option" == "-create" ]; then
+
+	if [ "$option" == "-provision" ]; then
+
 		network_exists
 		subnet_exists
 		firewall_rule_exists
 		static_ip_exists
 		compute_instances_exist
-	elif [ "$option" == "-remove" ]; then
-		echo "Cleaning up"
+
+	elif [ "$option" == "-copy-keys" ]; then
+
+		wait_till_ssh
+
+		if [ -d ./ssl ]; then
+			rm -rf ./ssl/
+		fi
+
+		bash create-certificate.sh
+		bash create-encryption-key.sh
+
+	elif [ "$option" == "-decommission" ]; then
+		echo "Decommissioning"
 		cleanup
 	else
 		print_help
 	fi
+
 else
 	print_help
 fi
