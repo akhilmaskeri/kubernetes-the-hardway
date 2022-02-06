@@ -12,6 +12,11 @@ PUBLIC_IP="$PROJECT-lb-ip"
 
 FIREWALL_RULE_INTERNAL="$PROJECT-allow-internal"
 FIREWALL_RULE_EXTERNAL="$PROJECT-allow-external"
+FIREWALL_RULE_HEALTH_CHECK="$PROJECT-allow-health-check"
+
+FORWARDING_RULE="kubernetes-forwarding-rule"
+TARGET_POOL="kubernetes-target-pool"
+HTTP_HEALTH_CHECK="kubernetes"
 
 function cleanup {
 
@@ -28,7 +33,7 @@ function cleanup {
 		fi
 	done
 	if [ -n "$running_instances" ]; then
-		gcloud compute instances delete $running_instances
+		gcloud compute instances delete -q $running_instances
 	fi
 
 	local existing_firewall_rules="$(gcloud compute firewall-rules list --filter=network:$NETWORK_NAME 2>&1)"
@@ -195,34 +200,118 @@ function compute_instances_exist {
 
 }
 
+function decomission_lb {
+
+	local existing_forwarding_rule="$(gcloud compute forwarding-rules list 2>&1)"
+	local existing_target_pool="$(gcloud compute target-pools list 2>&1)"
+	local existing_firewall_rules="$(gcloud compute firewall-rules list --filter=network:$NETWORK_NAME 2>&1)"
+	local existing_http_health_checks="$(gcloud compute http-health-checks list 2>&1)"
+
+	if grep -q "$FORWARDING_RULE" <<< $existing_forwarding_rule; then
+		echo "Deleting forwarding rule \"$FORWARDING_RULE\""
+		gcloud compute forwarding-rules delete -q "$FORWARDING_RULE"
+	fi
+
+	if grep -q "$TARGET_POOL" <<< "$existing_target_pool"; then
+		echo "Deleting target pool \"$TARGET_POOL\""
+		gcloud compute target-pools delete -q $TARGET_POOL
+	fi		
+
+	if grep -q "$FIREWALL_RULE_HEALTH_CHECK" <<< "$existing_firewall_rules"; then
+		echo "Deleting health check firewall rule \"$FIREWALL_RULE_HEALTH_CHECK\""
+		gcloud compute firewall-rules delete -q $FIREWALL_RULE_HEALTH_CHECK
+	fi
+
+	if grep -q "$HTTP_HEALTH_CHECK" <<< "$existing_http_health_checks"; then
+		echo "Deleting http health checks \"$HTTP_HEALTH_CHECK\""
+		gcloud compute http-health-checks delete -q "$HTTP_HEALTH_CHECK"
+	fi
+
+}
+
+function provision_lb {
+
+	KUBERNETES_PUBLIC_ADDRESS=$(gcloud compute addresses describe ${PUBLIC_IP} \
+		--region $REGION \
+		--format 'value(address)')
+
+	local existing_forwarding_rule="$(gcloud compute forwarding-rules list 2>&1)"
+	local existing_target_pool="$(gcloud compute target-pools list 2>&1)"
+	local existing_firewall_rules="$(gcloud compute firewall-rules list --filter=network:$NETWORK_NAME 2>&1)"
+	local existing_http_health_checks="$(gcloud compute http-health-checks list 2>&1)"
+
+	if grep -q "$HTTP_HEALTH_CHECK" <<< "$existing_http_health_checks"; then
+		echo "http health check \"$HTTP_HEALTH_CHECK\" exists"
+	else
+		echo "Creating health check \"$HTTP_HEALTH_CHECK\" ..."
+		gcloud compute http-health-checks create $HTTP_HEALTH_CHECK \
+			--description "Kubernetes Health Check" \
+			--host "kubernetes.default.svc.cluster.local" \
+			--request-path "/healthz"
+	fi
+
+	if grep -q "$FIREWALL_RULE_HEALTH_CHECK" <<< "$existing_firewall_rules"; then
+		echo "Firewall rule \"$FIREWALL_RULE_HEALTH_CHECK\" exists"
+	else
+		echo "Creating firewall-rule \"$FIREWALL_RULE_HEALTH_CHECK\" ..."
+		gcloud compute firewall-rules create $FIREWALL_RULE_HEALTH_CHECK \
+			--network $NETWORK_NAME \
+			--source-ranges 209.85.152.0/22,209.85.204.0/22,35.191.0.0/16 \
+			--allow tcp
+	fi
+
+	if grep -q "$TARGET_POOL" <<< "$existing_target_pool"; then
+		echo "Http Target Pool \"$TARGET_POOL\" exists"
+	else
+		echo "Creating target-pool \"$TARGET_POOL\"..."
+		gcloud compute target-pools create $TARGET_POOL \
+			--http-health-check $HTTP_HEALTH_CHECK
+
+		gcloud compute target-pools add-instances $TARGET_POOL \
+			--instances controller-0,controller-1
+		
+	fi		
+
+	if grep -q "$FORWARDING_RULE" <<< "$existing_forwarding_rule"; then
+		echo "Forwarding rule \"$FORWARDING_RULE\" exists"
+	else
+		echo "Creating forwarding-rules \"$FORWARDING_RULE\"..."
+		gcloud compute forwarding-rules create $FORWARDING_RULE \
+			--address ${KUBERNETES_PUBLIC_ADDRESS} \
+			--ports 6443 \
+			--region $REGION \
+			--target-pool $TARGET_POOL
+	fi
+
+}
+
 function wait_till_ssh {
 
 	# check if all are accessible through ssh
 	external_ip="$(gcloud compute instances list --format 'value(EXTERNAL_IP)')"
 	read -a external_ip -d '\n' <<< "$external_ip"
 
-	while true; do
+	accessible=0
+	for IP in ${external_ip[@]}; do
 
-		accessible=0
-
-		for IP in ${external_ip[@]}; do
-			if nc -w 1 -z $IP 22; then
-			accessible=$((accessible+1))
+		while true; do		
+			if nc -w 1 -z $IP 22 2>&1; then
+				accessible=$((accessible+1))
+				break
 			else
-			sleep 2
-			break
+				echo "$IP not reachable"
+				sleep 2
 			fi
 		done
-
-		if [ "$accessible" -eq "${#external_ip[@]}" ]; then
-			echo "All instances are accessible by ssh"
-			break
-		fi
-
+		
 	done
 
-}
+	if [ "$accessible" -eq "${#external_ip[@]}" ]; then
+		echo "All instances are accessible by ssh"
+		break
+	fi
 
+}
 
 function print_help {
 	echo "options"
@@ -243,6 +332,12 @@ if [ "$#" -gt "0" ]; then
 		static_ip_exists
 		compute_instances_exist
 
+	elif [ "$option" == "-provision_lb" ]; then
+		provision_lb
+
+	elif [ "$option" == "-decomission_lb" ]; then
+		decomission_lb
+
 	elif [ "$option" == "-copy-keys" ]; then
 
 		wait_till_ssh
@@ -253,6 +348,7 @@ if [ "$#" -gt "0" ]; then
 
 		bash create-certificate.sh
 		bash create-encryption-key.sh
+		bash create-kubeconfig.sh
 
 		bash copy-ssh-key.sh
 		bash generate-inventory.sh
