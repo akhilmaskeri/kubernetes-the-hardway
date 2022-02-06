@@ -1,0 +1,100 @@
+-
+    hosts: controller
+    gather_facts: True
+
+    tasks:
+
+        - name: "Get Internal IP"
+          shell: "curl -s -H \"Metadata-Flavor: Google\" http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/ip"
+          register: internal_ip
+
+        - name: "Download etcd package"
+          get_url:
+              url: "https://github.com/etcd-io/etcd/releases/download/v3.4.15/etcd-v3.4.15-linux-amd64.tar.gz"
+              dest: ~/        
+          register: etcd_package
+
+        - name: "Extract etcd"
+          unarchive:
+              src: "{{ etcd_package.dest | basename }}"
+              dest: ~/
+              remote_src: True
+          register: etcd_extracted
+
+        - name: "Copy files to /usr/local/bin/"
+          become: True
+          become_user: root
+          shell: "cp {{ etcd_package.dest | basename | replace('.tar.gz', '') }}/etcd* /usr/local/bin/"
+
+        - name: "Make /etc/etcd directory"
+          become: True
+          become_user: root
+          file:
+              path: /etc/etcd
+              state: directory
+
+        - name: "Make /var/lib/etcd directory"
+          become: True
+          become_user: root
+          file:
+              path: /var/lib/etcd
+              state: directory
+              mode: 700
+
+        - name: "Copy pem files"
+          become: True
+          become_user: root
+          copy:
+              src: "{{item}}"
+              dest: /etc/etcd/ 
+              remote_src: True
+          loop:
+              - ca.pem 
+              - kubernetes-key.pem 
+              - kubernetes.pem
+
+        - name: "Create etcd.service file"
+          become: True
+          become_user: root
+          copy:
+               dest: /etc/systemd/system/etcd.service
+               content: |
+                    [Unit]
+                    Description=etcd
+                    Documentation=https://github.com/coreos
+
+                    [Service]
+                    Type=notify
+                    ExecStart=/usr/local/bin/etcd \
+                        --name {{ansible_hostname}} \
+                        --cert-file=/etc/etcd/kubernetes.pem \
+                        --key-file=/etc/etcd/kubernetes-key.pem \
+                        --peer-cert-file=/etc/etcd/kubernetes.pem \
+                        --peer-key-file=/etc/etcd/kubernetes-key.pem \
+                        --trusted-ca-file=/etc/etcd/ca.pem \
+                        --peer-trusted-ca-file=/etc/etcd/ca.pem \
+                        --peer-client-cert-auth \
+                        --client-cert-auth \
+                        --initial-advertise-peer-urls https://{{internal_ip.stdout}}:2380 \
+                        --listen-peer-urls https://{{internal_ip.stdout}}:2380 \
+                        --listen-client-urls https://{{internal_ip.stdout}}:2379,https://127.0.0.1:2379 \
+                        --advertise-client-urls https://{{internal_ip.stdout}}:2379 \
+                        --initial-cluster-token etcd-cluster-0 \
+                        --initial-cluster controller-0=https://10.240.0.10:2380,controller-1=https://10.240.0.11:2380 \
+                        --initial-cluster-state new \
+                        --data-dir=/var/lib/etcd
+                    Restart=on-failure
+                    RestartSec=5
+
+                    [Install]
+                    WantedBy=multi-user.target
+
+        - name: "Enable and start etcd"
+          become: True
+          become_user: root
+          systemd:
+               name: etcd
+               enabled: yes
+               daemon_reload: yes
+               state: started
+               
