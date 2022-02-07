@@ -14,11 +14,13 @@ FIREWALL_RULE_INTERNAL="$PROJECT-allow-internal"
 FIREWALL_RULE_EXTERNAL="$PROJECT-allow-external"
 FIREWALL_RULE_HEALTH_CHECK="$PROJECT-allow-health-check"
 
-FORWARDING_RULE="kubernetes-forwarding-rule"
-TARGET_POOL="kubernetes-target-pool"
-HTTP_HEALTH_CHECK="kubernetes"
+FORWARDING_RULE="$PROJECT-forwarding-rule"
+TARGET_POOL="$PROJECT-target-pool"
+HTTP_HEALTH_CHECK="$PROJECT-http-health-check"
 
 function cleanup {
+
+	decomission_lb
 
 	local existing_instances="$(gcloud compute instances list 2>&1)"
 	local running_instances=""
@@ -308,7 +310,6 @@ function wait_till_ssh {
 
 	if [ "$accessible" -eq "${#external_ip[@]}" ]; then
 		echo "All instances are accessible by ssh"
-		break
 	fi
 
 }
@@ -352,6 +353,17 @@ if [ "$#" -gt "0" ]; then
 
 		bash copy-ssh-key.sh
 		bash generate-inventory.sh
+
+	elif [ "$option" == "-bootstrap" ]; then
+
+		export ANSIBLE_HOST_KEY_CHECKING=False
+		
+		rm ~/.ssh/known_hosts
+
+		ansible-playbook -i ansible_inventory playbooks/bootstrap-etcd.yaml
+		ansible-playbook -i ansible_inventory playbooks/bootstrap-controllers.yaml
+		
+		provision_lb
 
 	elif [ "$option" == "-decommission" ]; then
 		echo "Decommissioning"
