@@ -360,10 +360,11 @@ if [ "$#" -gt "0" ]; then
 		
 		rm ~/.ssh/known_hosts
 
+		provision_lb
+
 		ansible-playbook -i ansible_inventory playbooks/bootstrap-etcd.yaml
 		ansible-playbook -i ansible_inventory playbooks/bootstrap-controllers.yaml
-		
-		provision_lb
+		ansible-playbook -i ansible_inventory playbooks/bootstrap-workers.yaml
 
 	elif [ "$option" == "-decommission" ]; then
 		echo "Decommissioning"

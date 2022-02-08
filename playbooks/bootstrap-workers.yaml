@@ -46,7 +46,7 @@
           - /var/run/kubernetes
           - containerd
           - /etc/containerd/
-          - /var/lib/kubelet/kubeconfig
+          - /var/lib/kubelet/
 
       - name: unarchinve crictl
         become: True
@@ -85,6 +85,7 @@
           src: "~/{{item}}"
           dest: /usr/local/bin/
           remote_src: True
+          mode: +x
         with_items:
           - crictl 
           - kubectl 
@@ -205,11 +206,11 @@
             clusterDomain: "cluster.local"
             clusterDNS:
               - "10.32.0.10"
-            podCIDR: "${POD_CIDR}"
+            podCIDR: "{{pod_cidr.stdout}}"
             resolvConf: "/run/systemd/resolve/resolv.conf"
             runtimeRequestTimeout: "15m"
-            tlsCertFile: "/var/lib/kubelet/${HOSTNAME}.pem"
-            tlsPrivateKeyFile: "/var/lib/kubelet/${HOSTNAME}-key.pem"
+            tlsCertFile: "/var/lib/kubelet/{{hostname.stdout}}.pem"
+            tlsPrivateKeyFile: "/var/lib/kubelet/{{hostname.stdout}}-key.pem"
 
       - name: create kubelet.service
         become: True
