@@ -20,6 +20,7 @@ HTTP_HEALTH_CHECK="$PROJECT-http-health-check"
 
 function cleanup {
 
+	decomission_pod_network_route
 	decomission_lb
 
 	local existing_instances="$(gcloud compute instances list 2>&1)"
@@ -287,6 +288,25 @@ function provision_lb {
 
 }
 
+function provision_pod_network_route {
+
+
+	for i in 0 1; do
+		gcloud compute routes create $PROJECT-route-10-200-${i}-0-24 \
+			--network $NETWORK_NAME \
+			--next-hop-address 10.240.0.2${i} \
+			--destination-range 10.200.${i}.0/24
+	done
+
+}
+
+function decomission_pod_network_route {
+	for i in $(seq 0 1); do
+		gcloud compute routes delete -q $PROJECT-route-10-200-${i}-0-24
+	done
+}
+
+
 function wait_till_ssh {
 
 	# check if all are accessible through ssh
@@ -365,6 +385,12 @@ if [ "$#" -gt "0" ]; then
 		ansible-playbook -i ansible_inventory playbooks/bootstrap-etcd.yaml
 		ansible-playbook -i ansible_inventory playbooks/bootstrap-controllers.yaml
 		ansible-playbook -i ansible_inventory playbooks/bootstrap-workers.yaml
+
+	elif [ "$option" == "-provision_pod_route" ]; then
+		provision_pod_network_route
+
+	elif [ "$option" == "-decomission_pod_route" ]; then
+		decomission_pod_network_route
 
 	elif [ "$option" == "-decommission" ]; then
 		echo "Decommissioning"
