@@ -232,7 +232,7 @@ function decomission_lb {
 
 }
 
-function provision_lb {
+function lb_exists {
 
 	KUBERNETES_PUBLIC_ADDRESS=$(gcloud compute addresses describe ${PUBLIC_IP} \
 		--region $REGION \
@@ -354,7 +354,7 @@ if [ "$#" -gt "0" ]; then
 		compute_instances_exist
 
 	elif [ "$option" == "-provision_lb" ]; then
-		provision_lb
+		lb_exists
 
 	elif [ "$option" == "-decomission_lb" ]; then
 		decomission_lb
